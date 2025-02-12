@@ -16,8 +16,9 @@ Custom editor written in C99 and ncurses library. Yes it is single file.
 ## How to use
 ### Clone Git repo
 ```bash
-git clone 
+git clone https://github.com/Zank613/simple_editor.git
 ```
+### Build it
 ```bash
 gcc -o custom_editor main.c -lncurses
 ```
