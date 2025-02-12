@@ -2,7 +2,7 @@
 Custom editor written in C99 and ncurses library. Yes it is single file.
 
 ## Features
-- CTRL+S to save.
+- CTRL+S to save. Save files are created by making a saves directory in the root directory of the program.
 - CTRL+O to load a file.
 - Tab is 4 spaces.
 - Auto indentation.
