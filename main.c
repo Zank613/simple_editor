@@ -23,6 +23,9 @@ typedef struct Config
 // Default configuration: both enabled.
 Config config = { 1, 1 };
 
+// Global variable to store current file path (save state).
+char current_file[PROMPT_BUFFER_SIZE] = { 0 };
+
 // Helper: trim leading and trailing whitespace.
 char *trim(char *s)
 {
@@ -165,7 +168,7 @@ void editor_refresh_screen(void)
         }
     }
 
-    // Status/help line.
+    // Display a status/help line at the bottom.
     mvprintw(rows - 1, 0, "Ctrl+Q: Quit | Ctrl+S: Save | Ctrl+O: Open | Tab: %s | Arrow keys: Move",
              config.tab_four_spaces ? "4 spaces" : "tab");
 
@@ -183,7 +186,7 @@ void editor_insert_char(int ch)
     {
         return;
     }
-    // Shift characters right from cursor.
+    // Shift characters to the right from the cursor.
     for (int i = len; i >= editor.cursor_x; i--)
     {
         line[i + 1] = line[i];
@@ -330,34 +333,44 @@ void editor_prompt(char *prompt, char *buffer, size_t bufsize)
 }
 
 //
-// Saves the file by prompting for a filename, ensuring a "saves" directory exists,
-// and writing the buffer to that file.
+// Saves the file. If a file is already loaded/saved (save state exists),
+// it saves to that file; otherwise, it prompts for a filename and sets the save state.
 //
 void editor_save_file(void)
 {
     char filename[PROMPT_BUFFER_SIZE];
     char filepath[PROMPT_BUFFER_SIZE];
 
-    editor_prompt("Save as: ", filename, PROMPT_BUFFER_SIZE);
-    if (strlen(filename) == 0)
+    // If a file is already associated with this session, save directly.
+    if (current_file[0] != '\0')
     {
-        return;
+        strncpy(filepath, current_file, PROMPT_BUFFER_SIZE);
     }
-
-    struct stat st = {0};
-    if (stat("saves", &st) == -1)
+    else
     {
-        if (mkdir("saves", 0777) == -1)
+        editor_prompt("Save as: ", filename, PROMPT_BUFFER_SIZE);
+        if (strlen(filename) == 0)
         {
-            int rows, cols;
-            getmaxyx(stdscr, rows, cols);
-            mvprintw(rows - 1, 0, "Error creating saves directory: %s", strerror(errno));
-            getch();
             return;
         }
+
+        struct stat st = {0};
+        if (stat("saves", &st) == -1)
+        {
+            if (mkdir("saves", 0777) == -1)
+            {
+                int rows, cols;
+                getmaxyx(stdscr, rows, cols);
+                mvprintw(rows - 1, 0, "Error creating saves directory: %s", strerror(errno));
+                getch();
+                return;
+            }
+        }
+        snprintf(filepath, PROMPT_BUFFER_SIZE, "saves/%s", filename);
+        // Set the save state.
+        strncpy(current_file, filepath, PROMPT_BUFFER_SIZE);
     }
 
-    snprintf(filepath, PROMPT_BUFFER_SIZE, "saves/%s", filename);
     FILE *fp = fopen(filepath, "w");
     if (fp == NULL)
     {
@@ -383,6 +396,7 @@ void editor_save_file(void)
 
 //
 // Loads a file by prompting for its name and reading from the "saves" directory.
+// When a file is loaded, the save state is updated so subsequent saves write directly.
 //
 void editor_load_file(void)
 {
@@ -424,6 +438,8 @@ void editor_load_file(void)
 
     editor.cursor_x = 0;
     editor.cursor_y = 0;
+    // Update the save state.
+    strncpy(current_file, filepath, PROMPT_BUFFER_SIZE);
 
     int rows, cols;
     getmaxyx(stdscr, rows, cols);
