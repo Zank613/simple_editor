@@ -8,6 +8,7 @@ Custom editor written in C99 and ncurses library. Yes it is single file.
 - Auto indentation.
 - Line numbers on the left side.
 - Tweaking settings with settings.config file.
+- CTRL+Y for Redo & CTRL+Z for Undo.
 
 ## Prerequisites
 - Use Linux.
