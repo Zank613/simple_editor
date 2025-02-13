@@ -5,11 +5,93 @@
 #include <sys/types.h>
 #include <errno.h>
 #include <stdio.h>
+#include <ctype.h>
 
 #define MAX_LINES 1000
 #define MAX_COLS 1024
 #define LINE_NUMBER_WIDTH 6
 #define PROMPT_BUFFER_SIZE 256
+
+// Configuration structure.
+typedef struct Config
+{
+    int tab_four_spaces;
+    int auto_indent;
+    // Add more configuration options here.
+} Config;
+
+// Default configuration: both enabled.
+Config config = { 1, 1 };
+
+// Helper: trim leading and trailing whitespace.
+char *trim(char *s)
+{
+    while (isspace((unsigned char)*s))
+    {
+        s++;
+    }
+    if (*s == '\0')
+    {
+        return s;
+    }
+    char *end = s + strlen(s) - 1;
+    while (end > s && isspace((unsigned char)*end))
+    {
+        end--;
+    }
+    *(end + 1) = '\0';
+    return s;
+}
+
+//
+// Loads the configuration from "settings.config".
+// The file should have lines like:
+//   TAB_FOUR_SPACES = TRUE;
+//   AUTO_INDENT = TRUE;
+//
+void load_config(void)
+{
+    FILE *fp = fopen("settings.config", "r");
+    if (fp == NULL)
+    {
+        // No config file found; use default settings.
+        return;
+    }
+
+    char line[256];
+    while (fgets(line, sizeof(line), fp))
+    {
+        // Skip leading whitespace.
+        char *p = line;
+        while (*p && isspace((unsigned char)*p))
+        {
+            p++;
+        }
+        // Skip blank lines or comments.
+        if (*p == '\0' || *p == '\n' || *p == '/' || *p == '#')
+        {
+            continue;
+        }
+
+        char key[64], value[64];
+        // Use sscanf to parse up to the '=' and then the value up to the ';'
+        if (sscanf(p, " %63[^=] = %63[^;];", key, value) == 2)
+        {
+            char *trimmedKey = trim(key);
+            char *trimmedValue = trim(value);
+            if (strcmp(trimmedKey, "TAB_FOUR_SPACES") == 0)
+            {
+                config.tab_four_spaces = (strcmp(trimmedValue, "TRUE") == 0 || strcmp(trimmedValue, "true") == 0);
+            }
+            else if (strcmp(trimmedKey, "AUTO_INDENT") == 0)
+            {
+                config.auto_indent = (strcmp(trimmedValue, "TRUE") == 0 || strcmp(trimmedValue, "true") == 0);
+            }
+            // Add more options here if needed.
+        }
+    }
+    fclose(fp);
+}
 
 typedef struct Editor
 {
@@ -83,8 +165,9 @@ void editor_refresh_screen(void)
         }
     }
 
-    // Display a status/help line at the bottom.
-    mvprintw(rows - 1, 0, "Ctrl+Q: Quit | Ctrl+S: Save | Ctrl+O: Open | Tab: 4 spaces | Arrow keys: Move");
+    // Status/help line.
+    mvprintw(rows - 1, 0, "Ctrl+Q: Quit | Ctrl+S: Save | Ctrl+O: Open | Tab: %s | Arrow keys: Move",
+             config.tab_four_spaces ? "4 spaces" : "tab");
 
     int screen_cursor_y = editor.cursor_y - editor.row_offset;
     int screen_cursor_x = editor.cursor_x - editor.col_offset + LINE_NUMBER_WIDTH;
@@ -100,7 +183,7 @@ void editor_insert_char(int ch)
     {
         return;
     }
-    // Shift characters to the right from the cursor position.
+    // Shift characters right from cursor.
     for (int i = len; i >= editor.cursor_x; i--)
     {
         line[i + 1] = line[i];
@@ -175,6 +258,10 @@ void editor_delete_at_cursor(void)
     }
 }
 
+//
+// Inserts a new line. If AUTO_INDENT is enabled, the new line is prefilled
+// with the same leading spaces as the current line.
+//
 void editor_insert_newline(void)
 {
     if (editor.num_lines >= MAX_LINES)
@@ -185,40 +272,49 @@ void editor_insert_newline(void)
     char *line = editor.text[editor.cursor_y];
     int len = strlen(line);
     
-    // Save the remainder of the current line starting at the cursor.
+    // Save remainder from the current line.
     char remainder[MAX_COLS];
     strcpy(remainder, line + editor.cursor_x);
     
-    // Terminate the current line at the cursor position.
+    // Terminate current line at cursor.
     line[editor.cursor_x] = '\0';
-    
-    // Calculate auto-indentation by counting leading spaces in the current line.
-    int indent_count = 0;
-    while (line[indent_count] == ' ' && indent_count < MAX_COLS - 1)
-    {
-        indent_count++;
-    }
-    
-    // Prepare the new line with auto-indentation.
-    char new_line[MAX_COLS] = {0};
-    for (int i = 0; i < indent_count && i < MAX_COLS - 1; i++)
-    {
-        new_line[i] = ' ';
-    }
-    new_line[indent_count] = '\0';
-    strncat(new_line, remainder, MAX_COLS - strlen(new_line) - 1);
     
     // Shift lines below down by one.
     for (int i = editor.num_lines; i > editor.cursor_y + 1; i--)
     {
         strcpy(editor.text[i], editor.text[i - 1]);
     }
-    strcpy(editor.text[editor.cursor_y + 1], new_line);
+    
+    if (config.auto_indent)
+    {
+        // Count leading spaces (indentation) of current line.
+        int indent_count = 0;
+        while (line[indent_count] == ' ' && indent_count < MAX_COLS - 1)
+        {
+            indent_count++;
+        }
+        char new_line[MAX_COLS] = {0};
+        for (int i = 0; i < indent_count && i < MAX_COLS - 1; i++)
+        {
+            new_line[i] = ' ';
+        }
+        new_line[indent_count] = '\0';
+        strncat(new_line, remainder, MAX_COLS - strlen(new_line) - 1);
+        strcpy(editor.text[editor.cursor_y + 1], new_line);
+        editor.cursor_x = indent_count;
+    }
+    else
+    {
+        strcpy(editor.text[editor.cursor_y + 1], remainder);
+        editor.cursor_x = 0;
+    }
     editor.num_lines++;
     editor.cursor_y++;
-    editor.cursor_x = indent_count;
 }
 
+//
+// Prompts for input at the bottom of the screen.
+//
 void editor_prompt(char *prompt, char *buffer, size_t bufsize)
 {
     int rows, cols;
@@ -233,6 +329,10 @@ void editor_prompt(char *prompt, char *buffer, size_t bufsize)
     curs_set(1);
 }
 
+//
+// Saves the file by prompting for a filename, ensuring a "saves" directory exists,
+// and writing the buffer to that file.
+//
 void editor_save_file(void)
 {
     char filename[PROMPT_BUFFER_SIZE];
@@ -281,6 +381,9 @@ void editor_save_file(void)
     getch();
 }
 
+//
+// Loads a file by prompting for its name and reading from the "saves" directory.
+//
 void editor_load_file(void)
 {
     char filename[PROMPT_BUFFER_SIZE];
@@ -350,11 +453,18 @@ void process_keypress(void)
             editor_load_file();
             break;
         }
-        case '\t': // Tab key: insert 4 spaces.
+        case '\t': // Tab key.
         {
-            for (int i = 0; i < 4; i++)
+            if (config.tab_four_spaces)
             {
-                editor_insert_char(' ');
+                for (int i = 0; i < 4; i++)
+                {
+                    editor_insert_char(' ');
+                }
+            }
+            else
+            {
+                editor_insert_char('\t');
             }
             break;
         }
@@ -440,6 +550,9 @@ void process_keypress(void)
 
 int main(void)
 {
+    // Load settings from file.
+    load_config();
+
     initscr();
     raw();
     noecho();
