@@ -145,10 +145,14 @@ void update_viewport(void)
     }
 }
 
+//
+// Refreshes the screen using erase() and batching updates with wnoutrefresh/doupdate
+// to reduce flickering.
+//
 void editor_refresh_screen(void)
 {
-    clear();
-
+    erase(); // Clears the virtual window without a full terminal clear.
+    
     int rows, cols;
     getmaxyx(stdscr, rows, cols);
     update_viewport();
@@ -175,7 +179,9 @@ void editor_refresh_screen(void)
     int screen_cursor_y = editor.cursor_y - editor.row_offset;
     int screen_cursor_x = editor.cursor_x - editor.col_offset + LINE_NUMBER_WIDTH;
     move(screen_cursor_y, screen_cursor_x);
-    refresh();
+    
+    wnoutrefresh(stdscr);
+    doupdate();
 }
 
 void editor_insert_char(int ch)
@@ -333,15 +339,15 @@ void editor_prompt(char *prompt, char *buffer, size_t bufsize)
 }
 
 //
-// Saves the file. If a file is already loaded/saved (save state exists),
-// it saves to that file; otherwise, it prompts for a filename and sets the save state.
+// Saves the file. If a file is already associated with this session,
+// it saves directly; otherwise, it prompts for a filename and sets the save state.
 //
 void editor_save_file(void)
 {
     char filename[PROMPT_BUFFER_SIZE];
     char filepath[PROMPT_BUFFER_SIZE];
 
-    // If a file is already associated with this session, save directly.
+    // If a file is already associated, save directly.
     if (current_file[0] != '\0')
     {
         strncpy(filepath, current_file, PROMPT_BUFFER_SIZE);
