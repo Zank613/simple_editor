@@ -11,6 +11,7 @@
 #define MAX_COLS 1024
 #define LINE_NUMBER_WIDTH 6
 #define PROMPT_BUFFER_SIZE 256
+#define UNDO_STACK_SIZE 100
 
 // Configuration structure.
 typedef struct Config
@@ -146,18 +147,117 @@ void update_viewport(void)
 }
 
 //
+// Undo/Redo: store snapshots of the editor state.
+//
+typedef struct EditorState
+{
+    char text[MAX_LINES][MAX_COLS];
+    int num_lines;
+    int cursor_x;
+    int cursor_y;
+    int row_offset;
+    int col_offset;
+} EditorState;
+
+EditorState undo_stack[UNDO_STACK_SIZE];
+int undo_stack_top = 0;
+
+EditorState redo_stack[UNDO_STACK_SIZE];
+int redo_stack_top = 0;
+
+//
+// Save the current state into the undo stack and clear the redo stack.
+//
+void save_state_undo(void)
+{
+    if (undo_stack_top < UNDO_STACK_SIZE)
+    {
+        EditorState state;
+        memcpy(state.text, editor.text, sizeof(editor.text));
+        state.num_lines = editor.num_lines;
+        state.cursor_x = editor.cursor_x;
+        state.cursor_y = editor.cursor_y;
+        state.row_offset = editor.row_offset;
+        state.col_offset = editor.col_offset;
+        undo_stack[undo_stack_top++] = state;
+    }
+    else
+    {
+        // If the stack is full, you might shift the stack.
+    }
+    // Clear redo stack:
+    redo_stack_top = 0;
+}
+
+//
+// Undo: pop a state from the undo stack and push the current state onto the redo stack.
+//
+void undo(void)
+{
+    if (undo_stack_top > 0)
+    {
+        EditorState state = undo_stack[--undo_stack_top];
+        if (redo_stack_top < UNDO_STACK_SIZE)
+        {
+            EditorState current;
+            memcpy(current.text, editor.text, sizeof(editor.text));
+            current.num_lines = editor.num_lines;
+            current.cursor_x = editor.cursor_x;
+            current.cursor_y = editor.cursor_y;
+            current.row_offset = editor.row_offset;
+            current.col_offset = editor.col_offset;
+            redo_stack[redo_stack_top++] = current;
+        }
+        memcpy(editor.text, state.text, sizeof(editor.text));
+        editor.num_lines = state.num_lines;
+        editor.cursor_x = state.cursor_x;
+        editor.cursor_y = state.cursor_y;
+        editor.row_offset = state.row_offset;
+        editor.col_offset = state.col_offset;
+    }
+}
+
+//
+// Redo: pop a state from the redo stack and push the current state onto the undo stack.
+//
+void redo(void)
+{
+    if (redo_stack_top > 0)
+    {
+        EditorState state = redo_stack[--redo_stack_top];
+        if (undo_stack_top < UNDO_STACK_SIZE)
+        {
+            EditorState current;
+            memcpy(current.text, editor.text, sizeof(editor.text));
+            current.num_lines = editor.num_lines;
+            current.cursor_x = editor.cursor_x;
+            current.cursor_y = editor.cursor_y;
+            current.row_offset = editor.row_offset;
+            current.col_offset = editor.col_offset;
+            undo_stack[undo_stack_top++] = current;
+        }
+        memcpy(editor.text, state.text, sizeof(editor.text));
+        editor.num_lines = state.num_lines;
+        editor.cursor_x = state.cursor_x;
+        editor.cursor_y = state.cursor_y;
+        editor.row_offset = state.row_offset;
+        editor.col_offset = state.col_offset;
+    }
+}
+
+//
 // Refreshes the screen using erase() and batching updates with wnoutrefresh/doupdate
 // to reduce flickering.
 //
 void editor_refresh_screen(void)
 {
-    erase(); // Clears the virtual window without a full terminal clear.
-    
+    erase(); // Clear virtual window (minimizes full-screen flicker).
+
     int rows, cols;
     getmaxyx(stdscr, rows, cols);
     update_viewport();
 
-    // Display the text buffer with line numbers.
+    // Display text with line numbers.
     for (int i = editor.row_offset; i < editor.num_lines && i < editor.row_offset + rows - 1; i++)
     {
         int screen_row = i - editor.row_offset;
@@ -172,14 +272,14 @@ void editor_refresh_screen(void)
         }
     }
 
-    // Display a status/help line at the bottom.
-    mvprintw(rows - 1, 0, "Ctrl+Q: Quit | Ctrl+S: Save | Ctrl+O: Open | Tab: %s | Arrow keys: Move",
+    // Status/help line.
+    mvprintw(rows - 1, 0, "Ctrl+Q: Quit | Ctrl+S: Save | Ctrl+O: Open | Ctrl+Z: Undo | Ctrl+Y: Redo | Tab: %s | Arrow keys: Move",
              config.tab_four_spaces ? "4 spaces" : "tab");
 
     int screen_cursor_y = editor.cursor_y - editor.row_offset;
     int screen_cursor_x = editor.cursor_x - editor.col_offset + LINE_NUMBER_WIDTH;
     move(screen_cursor_y, screen_cursor_x);
-    
+
     wnoutrefresh(stdscr);
     doupdate();
 }
@@ -192,7 +292,7 @@ void editor_insert_char(int ch)
     {
         return;
     }
-    // Shift characters to the right from the cursor.
+    // Shift characters to the right.
     for (int i = len; i >= editor.cursor_x; i--)
     {
         line[i + 1] = line[i];
@@ -268,8 +368,7 @@ void editor_delete_at_cursor(void)
 }
 
 //
-// Inserts a new line. If AUTO_INDENT is enabled, the new line is prefilled
-// with the same leading spaces as the current line.
+// Inserts a new line. If AUTO_INDENT is enabled, prefill with the same leading spaces.
 //
 void editor_insert_newline(void)
 {
@@ -281,14 +380,12 @@ void editor_insert_newline(void)
     char *line = editor.text[editor.cursor_y];
     int len = strlen(line);
     
-    // Save remainder from the current line.
     char remainder[MAX_COLS];
     strcpy(remainder, line + editor.cursor_x);
     
-    // Terminate current line at cursor.
     line[editor.cursor_x] = '\0';
     
-    // Shift lines below down by one.
+    // Shift lines below down.
     for (int i = editor.num_lines; i > editor.cursor_y + 1; i--)
     {
         strcpy(editor.text[i], editor.text[i - 1]);
@@ -296,7 +393,6 @@ void editor_insert_newline(void)
     
     if (config.auto_indent)
     {
-        // Count leading spaces (indentation) of current line.
         int indent_count = 0;
         while (line[indent_count] == ' ' && indent_count < MAX_COLS - 1)
         {
@@ -339,15 +435,14 @@ void editor_prompt(char *prompt, char *buffer, size_t bufsize)
 }
 
 //
-// Saves the file. If a file is already associated with this session,
-// it saves directly; otherwise, it prompts for a filename and sets the save state.
+// Saves the file. If a file is already loaded/saved, it writes directly;
+// otherwise, it prompts for a filename and sets the save state.
 //
 void editor_save_file(void)
 {
     char filename[PROMPT_BUFFER_SIZE];
     char filepath[PROMPT_BUFFER_SIZE];
 
-    // If a file is already associated, save directly.
     if (current_file[0] != '\0')
     {
         strncpy(filepath, current_file, PROMPT_BUFFER_SIZE);
@@ -359,7 +454,6 @@ void editor_save_file(void)
         {
             return;
         }
-
         struct stat st = {0};
         if (stat("saves", &st) == -1)
         {
@@ -373,7 +467,6 @@ void editor_save_file(void)
             }
         }
         snprintf(filepath, PROMPT_BUFFER_SIZE, "saves/%s", filename);
-        // Set the save state.
         strncpy(current_file, filepath, PROMPT_BUFFER_SIZE);
     }
 
@@ -401,8 +494,7 @@ void editor_save_file(void)
 }
 
 //
-// Loads a file by prompting for its name and reading from the "saves" directory.
-// When a file is loaded, the save state is updated so subsequent saves write directly.
+// Loads a file from the "saves" directory and updates the save state.
 //
 void editor_load_file(void)
 {
@@ -414,7 +506,6 @@ void editor_load_file(void)
     {
         return;
     }
-
     snprintf(filepath, PROMPT_BUFFER_SIZE, "saves/%s", filename);
     FILE *fp = fopen(filepath, "r");
     if (fp == NULL)
@@ -444,7 +535,6 @@ void editor_load_file(void)
 
     editor.cursor_x = 0;
     editor.cursor_y = 0;
-    // Update the save state.
     strncpy(current_file, filepath, PROMPT_BUFFER_SIZE);
 
     int rows, cols;
@@ -454,29 +544,33 @@ void editor_load_file(void)
     getch();
 }
 
+//
+// Processes key presses and invokes modifications.
+// Undo (Ctrl+Z) and redo (Ctrl+Y) are now supported.
+//
 void process_keypress(void)
 {
     int ch = getch();
     switch (ch)
     {
-        case 17: // Ctrl+Q to quit.
-        {
+        case 17: // Ctrl+Q: Quit.
             endwin();
             exit(0);
             break;
-        }
-        case 19: // Ctrl+S to save.
-        {
+        case 26: // Ctrl+Z: Undo.
+            undo();
+            break;
+        case 25: // Ctrl+Y: Redo.
+            redo();
+            break;
+        case 19: // Ctrl+S: Save.
             editor_save_file();
             break;
-        }
-        case 15: // Ctrl+O to open.
-        {
+        case 15: // Ctrl+O: Open.
             editor_load_file();
             break;
-        }
         case '\t': // Tab key.
-        {
+            save_state_undo();
             if (config.tab_four_spaces)
             {
                 for (int i = 0; i < 4; i++)
@@ -489,98 +583,76 @@ void process_keypress(void)
                 editor_insert_char('\t');
             }
             break;
-        }
         case KEY_LEFT:
-        {
             if (editor.cursor_x > 0)
-            {
                 editor.cursor_x--;
-            }
             else if (editor.cursor_y > 0)
             {
                 editor.cursor_y--;
                 editor.cursor_x = strlen(editor.text[editor.cursor_y]);
             }
             break;
-        }
         case KEY_RIGHT:
-        {
             if (editor.cursor_x < (int)strlen(editor.text[editor.cursor_y]))
-            {
                 editor.cursor_x++;
-            }
             else if (editor.cursor_y < editor.num_lines - 1)
             {
                 editor.cursor_y++;
                 editor.cursor_x = 0;
             }
             break;
-        }
         case KEY_UP:
-        {
             if (editor.cursor_y > 0)
             {
                 editor.cursor_y--;
                 int line_len = strlen(editor.text[editor.cursor_y]);
                 if (editor.cursor_x > line_len)
-                {
                     editor.cursor_x = line_len;
-                }
             }
             break;
-        }
         case KEY_DOWN:
-        {
             if (editor.cursor_y < editor.num_lines - 1)
             {
                 editor.cursor_y++;
                 int line_len = strlen(editor.text[editor.cursor_y]);
                 if (editor.cursor_x > line_len)
-                {
                     editor.cursor_x = line_len;
-                }
             }
             break;
-        }
         case KEY_BACKSPACE:
         case 127:
-        {
+            save_state_undo();
             editor_delete_char();
             break;
-        }
         case KEY_DC:
-        {
+            save_state_undo();
             editor_delete_at_cursor();
             break;
-        }
         case '\n':
         case '\r':
-        {
+            save_state_undo();
             editor_insert_newline();
             break;
-        }
         default:
-        {
             if (ch >= 32 && ch <= 126)
             {
+                save_state_undo();
                 editor_insert_char(ch);
             }
             break;
-        }
     }
 }
 
 int main(void)
 {
-    // Load settings from file.
+    // Load settings.
     load_config();
 
     initscr();
     raw();
     noecho();
     keypad(stdscr, TRUE);
-    // Show a block-style cursor.
-    curs_set(1);
+    curs_set(1); // Show block-style cursor.
 
     init_editor();
 
