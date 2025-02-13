@@ -181,11 +181,7 @@ void save_state_undo(void)
         state.col_offset = editor.col_offset;
         undo_stack[undo_stack_top++] = state;
     }
-    else
-    {
-        // If the stack is full, you might shift the stack.
-    }
-    // Clear redo stack:
+    // Clear redo stack.
     redo_stack_top = 0;
 }
 
@@ -251,7 +247,7 @@ void redo(void)
 //
 void editor_refresh_screen(void)
 {
-    erase(); // Clear virtual window (minimizes full-screen flicker).
+    erase(); // Clear virtual window.
 
     int rows, cols;
     getmaxyx(stdscr, rows, cols);
@@ -273,7 +269,7 @@ void editor_refresh_screen(void)
     }
 
     // Status/help line.
-    mvprintw(rows - 1, 0, "Ctrl+Q: Quit | Ctrl+S: Save | Ctrl+O: Open | Ctrl+Z: Undo | Ctrl+Y: Redo | Tab: %s | Arrow keys: Move",
+    mvprintw(rows - 1, 0, "Ctrl+Q: Quit | Ctrl+S: Save | Ctrl+O: Open | Ctrl+Z: Undo | Ctrl+Y: Redo | Mouse: Click to move | Tab: %s | Arrow keys: Move",
              config.tab_four_spaces ? "4 spaces" : "tab");
 
     int screen_cursor_y = editor.cursor_y - editor.row_offset;
@@ -368,7 +364,7 @@ void editor_delete_at_cursor(void)
 }
 
 //
-// Inserts a new line. If AUTO_INDENT is enabled, prefill with the same leading spaces.
+// Inserts a new line. If AUTO_INDENT is enabled, prefill with same leading spaces.
 //
 void editor_insert_newline(void)
 {
@@ -385,7 +381,7 @@ void editor_insert_newline(void)
     
     line[editor.cursor_x] = '\0';
     
-    // Shift lines below down.
+    // Shift lines down.
     for (int i = editor.num_lines; i > editor.cursor_y + 1; i--)
     {
         strcpy(editor.text[i], editor.text[i - 1]);
@@ -435,8 +431,8 @@ void editor_prompt(char *prompt, char *buffer, size_t bufsize)
 }
 
 //
-// Saves the file. If a file is already loaded/saved, it writes directly;
-// otherwise, it prompts for a filename and sets the save state.
+// Saves the file. If already associated, writes directly;
+// otherwise, prompts for a filename and sets save state.
 //
 void editor_save_file(void)
 {
@@ -494,7 +490,7 @@ void editor_save_file(void)
 }
 
 //
-// Loads a file from the "saves" directory and updates the save state.
+// Loads a file from the "saves" directory and updates save state.
 //
 void editor_load_file(void)
 {
@@ -545,12 +541,38 @@ void editor_load_file(void)
 }
 
 //
-// Processes key presses and invokes modifications.
-// Undo (Ctrl+Z) and redo (Ctrl+Y) are now supported.
+// Processes key presses including simple mouse support.
+// Left-click moves the cursor to the clicked position.
 //
 void process_keypress(void)
 {
     int ch = getch();
+    if (ch == KEY_MOUSE)
+    {
+        MEVENT event;
+        if (getmouse(&event) == OK)
+        {
+            if (event.bstate & BUTTON1_CLICKED)
+            {
+                // Calculate new cursor positions:
+                int new_cursor_y = event.y + editor.row_offset;
+                int new_cursor_x;
+                if (event.x < LINE_NUMBER_WIDTH)
+                    new_cursor_x = 0;
+                else
+                    new_cursor_x = event.x - LINE_NUMBER_WIDTH + editor.col_offset;
+                if (new_cursor_y >= editor.num_lines)
+                    new_cursor_y = editor.num_lines - 1;
+                int line_len = strlen(editor.text[new_cursor_y]);
+                if (new_cursor_x > line_len)
+                    new_cursor_x = line_len;
+                editor.cursor_y = new_cursor_y;
+                editor.cursor_x = new_cursor_x;
+            }
+        }
+        return;
+    }
+
     switch (ch)
     {
         case 17: // Ctrl+Q: Quit.
@@ -645,7 +667,7 @@ void process_keypress(void)
 
 int main(void)
 {
-    // Load settings.
+    // Load configuration.
     load_config();
 
     initscr();
@@ -653,6 +675,9 @@ int main(void)
     noecho();
     keypad(stdscr, TRUE);
     curs_set(1); // Show block-style cursor.
+    // Enable mouse events.
+    mousemask(ALL_MOUSE_EVENTS, NULL);
+    mouseinterval(0);
 
     init_editor();
 
