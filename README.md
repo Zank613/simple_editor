@@ -24,6 +24,10 @@ git clone https://github.com/Zank613/simple_editor.git
 ```bash
 gcc -o custom_editor main.c -lncurses
 ```
+### Run it
+```bash
+./custom_editor
+```
 
 ### Tweak the settings.config
 ```c
