@@ -7,6 +7,7 @@ Custom editor written in C99 and ncurses library. Yes it is single file.
 - Tab is 4 spaces.
 - Auto indentation.
 - Line numbers on the left side.
+- Tweaking settings with settings.config file.
 
 ## Prerequisites
 - Use Linux.
@@ -21,4 +22,12 @@ git clone https://github.com/Zank613/simple_editor.git
 ### Build it
 ```bash
 gcc -o custom_editor main.c -lncurses
+```
+
+### Tweak the settings.config
+```c
+TAB_FOUR_SPACES = TRUE;
+//TAB_FOUR_SPACES = FALSE;
+AUTO_INDENT = TRUE;
+//AUTO_INDENT = FALSE;
 ```
