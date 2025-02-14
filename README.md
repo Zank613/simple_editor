@@ -9,6 +9,10 @@ Custom editor written in C99 and ncurses library. Yes it is single file.
 - Line numbers on the left side.
 - Tweaking settings with settings.config file.
 - CTRL+Y for Redo & CTRL+Z for Undo.
+- Mouse wheel to control cursor.
+- Status bar on the bottom.
+- Home/End keys jump to start or end of the line.
+- Page up/down scroll by 5 lines.
 
 ## Prerequisites
 - Use Linux.
