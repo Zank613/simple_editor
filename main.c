@@ -27,6 +27,9 @@ Config config = { 1, 1 };
 // Global variable to store current file path (save state).
 char current_file[PROMPT_BUFFER_SIZE] = { 0 };
 
+// Dirty flag: 1 if file has unsaved changes.
+int dirty = 0;
+
 // Helper: trim leading and trailing whitespace.
 char *trim(char *s)
 {
@@ -78,7 +81,7 @@ void load_config(void)
         }
 
         char key[64], value[64];
-        // Use sscanf to parse up to the '=' and then the value up to the ';'
+        // Use sscanf to parse key=value; lines.
         if (sscanf(p, " %63[^=] = %63[^;];", key, value) == 2)
         {
             char *trimmedKey = trim(key);
@@ -181,8 +184,9 @@ void save_state_undo(void)
         state.col_offset = editor.col_offset;
         undo_stack[undo_stack_top++] = state;
     }
-    // Clear redo stack.
+    // Clear redo stack:
     redo_stack_top = 0;
+    dirty = 1;
 }
 
 //
@@ -210,6 +214,7 @@ void undo(void)
         editor.cursor_y = state.cursor_y;
         editor.row_offset = state.row_offset;
         editor.col_offset = state.col_offset;
+        dirty = 1;
     }
 }
 
@@ -238,12 +243,13 @@ void redo(void)
         editor.cursor_y = state.cursor_y;
         editor.row_offset = state.row_offset;
         editor.col_offset = state.col_offset;
+        dirty = 1;
     }
 }
 
 //
 // Refreshes the screen using erase() and batching updates with wnoutrefresh/doupdate
-// to reduce flickering.
+// to reduce flickering. Also updates a detailed status bar.
 //
 void editor_refresh_screen(void)
 {
@@ -268,9 +274,16 @@ void editor_refresh_screen(void)
         }
     }
 
-    // Status/help line.
-    mvprintw(rows - 1, 0, "Ctrl+Q: Quit | Ctrl+S: Save | Ctrl+O: Open | Ctrl+Z: Undo | Ctrl+Y: Redo | Mouse: Click to move | Tab: %s | Arrow keys: Move",
-             config.tab_four_spaces ? "4 spaces" : "tab");
+    // Build a status string.
+    char status[256];
+    const char *fname = (current_file[0] != '\0') ? current_file : "Untitled";
+    snprintf(status, sizeof(status), "File: %s | Ln: %d, Col: %d%s",
+             fname,
+             editor.cursor_y + 1,
+             editor.cursor_x + 1,
+             (dirty ? " [Modified]" : ""));
+    // Display the status along with help keys.
+    mvprintw(rows - 1, 0, "%s  (Ctrl+Q: Quit, Ctrl+S: Save, Ctrl+O: Open, Ctrl+Z: Undo, Ctrl+Y: Redo, Home/End, PgUp/PgDn, Mouse)", status);
 
     int screen_cursor_y = editor.cursor_y - editor.row_offset;
     int screen_cursor_x = editor.cursor_x - editor.col_offset + LINE_NUMBER_WIDTH;
@@ -481,6 +494,7 @@ void editor_save_file(void)
         fprintf(fp, "%s\n", editor.text[i]);
     }
     fclose(fp);
+    dirty = 0; // Reset dirty flag on save.
 
     int rows, cols;
     getmaxyx(stdscr, rows, cols);
@@ -532,6 +546,7 @@ void editor_load_file(void)
     editor.cursor_x = 0;
     editor.cursor_y = 0;
     strncpy(current_file, filepath, PROMPT_BUFFER_SIZE);
+    dirty = 0;
 
     int rows, cols;
     getmaxyx(stdscr, rows, cols);
@@ -541,8 +556,8 @@ void editor_load_file(void)
 }
 
 //
-// Processes key presses including simple mouse support.
-// Left-click moves the cursor to the clicked position.
+// Processes key presses, including simple mouse support (click to move,
+// mouse wheel scrolling), Home/End, and Page Up/Page Down.
 //
 void process_keypress(void)
 {
@@ -554,7 +569,7 @@ void process_keypress(void)
         {
             if (event.bstate & BUTTON1_CLICKED)
             {
-                // Calculate new cursor positions:
+                // Move cursor to clicked position.
                 int new_cursor_y = event.y + editor.row_offset;
                 int new_cursor_x;
                 if (event.x < LINE_NUMBER_WIDTH)
@@ -568,6 +583,18 @@ void process_keypress(void)
                     new_cursor_x = line_len;
                 editor.cursor_y = new_cursor_y;
                 editor.cursor_x = new_cursor_x;
+            }
+            else if (event.bstate & BUTTON4_PRESSED) // Mouse wheel up.
+            {
+                editor.cursor_y -= 3;
+                if (editor.cursor_y < 0)
+                    editor.cursor_y = 0;
+            }
+            else if (event.bstate & BUTTON5_PRESSED) // Mouse wheel down.
+            {
+                editor.cursor_y += 3;
+                if (editor.cursor_y >= editor.num_lines)
+                    editor.cursor_y = editor.num_lines - 1;
             }
         }
         return;
@@ -590,6 +617,25 @@ void process_keypress(void)
             break;
         case 15: // Ctrl+O: Open.
             editor_load_file();
+            break;
+        case KEY_HOME:
+            editor.cursor_x = 0;
+            break;
+        case KEY_END:
+        {
+            int len = strlen(editor.text[editor.cursor_y]);
+            editor.cursor_x = len;
+            break;
+        }
+        case KEY_PPAGE: // Page Up.
+            editor.cursor_y -= 5;
+            if (editor.cursor_y < 0)
+                editor.cursor_y = 0;
+            break;
+        case KEY_NPAGE: // Page Down.
+            editor.cursor_y += 5;
+            if (editor.cursor_y >= editor.num_lines)
+                editor.cursor_y = editor.num_lines - 1;
             break;
         case '\t': // Tab key.
             save_state_undo();
@@ -667,14 +713,14 @@ void process_keypress(void)
 
 int main(void)
 {
-    // Load configuration.
+    // Load settings.
     load_config();
 
     initscr();
     raw();
     noecho();
     keypad(stdscr, TRUE);
-    curs_set(1); // Show block-style cursor.
+    curs_set(1); // Block-style cursor.
     // Enable mouse events.
     mousemask(ALL_MOUSE_EVENTS, NULL);
     mouseinterval(0);
