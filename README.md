@@ -1,5 +1,5 @@
 # Simple editor
-Custom editor written in C99 and ncurses library. Yes it is single file.
+Custom terminal-based text editor written in C99 and ncurses library. Yes it is single file.
 
 ## Features
 - CTRL+S to save. Save files are created by making a saves directory in the root directory of the program.
@@ -17,7 +17,7 @@ Custom editor written in C99 and ncurses library. Yes it is single file.
 ## Prerequisites
 - Use Linux.
 - Have ncurses installed.
-- Have GCC installed.
+- Have GCC or any other C compiler installed.
 
 ## How to use
 ### Clone Git repo
@@ -34,8 +34,12 @@ gcc -o custom_editor main.c -lncurses
 ./custom_editor
 ```
 
-### Tweak the settings.config
+### Tweak the settings.config (Optional)
 ```c
 TAB_FOUR_SPACES = TRUE;
 AUTO_INDENT = TRUE;
 ```
+## Acknowledgements
+- **[ncurses](https://invisible-island.net/ncurses/ncurses.html)**
+
+## [LICENSE](https://github.com/Zank613/simple_editor/blob/master/LICENSE)
