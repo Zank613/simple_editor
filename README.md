@@ -1,5 +1,5 @@
-# Simple editor
-Custom terminal-based text editor written in C99 and ncurses library. Yes it is single file.
+# Simple editor **Experimental**
+Custom terminal-based text editor written in C99 and ncurses library.
 
 ## Features
 - CTRL+S to save. Save files are created by making a saves directory in the root directory of the program.
@@ -13,9 +13,18 @@ Custom terminal-based text editor written in C99 and ncurses library. Yes it is 
 - Status bar on the bottom.
 - Home/End keys jump to start or end of the line.
 - Page up/down scroll by 5 lines.
+- **Syntax highlighting.**
+
+    - **Support for basic C99 keywords.**
+
+## **Experimental Branch**
+- **Syntax highlighting extension added to main codebase.**
+
+- **highlight.syntax file to parse and add color to the keywords.**
 
 ## Prerequisites
 - Use Linux.
+
 - Have ncurses installed.
 - Have GCC or any other C compiler installed.
 
@@ -38,6 +47,17 @@ gcc -o custom_editor main.c -lncurses
 ```c
 TAB_FOUR_SPACES = TRUE;
 AUTO_INDENT = TRUE;
+```
+
+### **Added new syntax features to highlight.syntax**
+```text
+SYNTAX ".c" && ".h"
+{
+    "char", "short", "int", "long", "float", "double", "void", "_Bool", "_Complex", "_Imaginary" = (255, 0, 0);
+    "if", "else", "switch", "case", "default", "for", "while", "do", "break", "continue", "return", "goto" = (0, 255, 0);
+    "auto", "extern", "static", "register", "const", "volatile", "restrict", "inline" = (0, 0, 255);
+    "struct", "union", "enum", "typedef" = (255, 255, 0);
+}
 ```
 ## Acknowledgements
 - **[ncurses](https://invisible-island.net/ncurses/ncurses.html)**
