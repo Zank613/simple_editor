@@ -1,0 +1,7 @@
+SYNTAX ".c" && ".h"
+{
+    "char", "short", "int", "long", "float", "double", "void", "_Bool", "_Complex", "_Imaginary" = (255, 0, 0);
+    "if", "else", "switch", "case", "default", "for", "while", "do", "break", "continue", "return", "goto" = (0, 255, 0);
+    "auto", "extern", "static", "register", "const", "volatile", "restrict", "inline" = (0, 0, 255);
+    "struct", "union", "enum", "typedef" = (255, 255, 0);
+}
