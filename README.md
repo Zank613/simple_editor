@@ -1,5 +1,5 @@
 # Simple editor **Experimental**
-Custom terminal-based text editor written in C99 and ncurses library.
+Custom terminal-based text editor written in C99 and ncurses library. Experimental branch supporting syntax highlighting.
 
 ## Features
 - CTRL+S to save. Save files are created by making a saves directory in the root directory of the program.
@@ -16,6 +16,7 @@ Custom terminal-based text editor written in C99 and ncurses library.
 - **Syntax highlighting.**
 
     - **Support for basic C99 keywords.**
+    - **CTRL+H to toggle syntax highlighting on or off.**
 
 ## **Experimental Branch**
 - **Syntax highlighting extension added to main codebase.**
@@ -31,16 +32,16 @@ Custom terminal-based text editor written in C99 and ncurses library.
 ## How to use
 ### Clone Git repo
 ```bash
-git clone https://github.com/Zank613/simple_editor.git
+git clone -b syntax_highlight_experimental --single-branch https://github.com/Zank613/simple_editor.git
 ```
 
 ### Build it
 ```bash
-gcc -o custom_editor main.c -lncurses
+gcc -o custom_editor_exp main.c -lncurses
 ```
 ### Run it
 ```bash
-./custom_editor
+./custom_editor_exp
 ```
 
 ### Tweak the settings.config (Optional)
