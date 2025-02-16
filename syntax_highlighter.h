@@ -40,70 +40,83 @@ typedef struct SH_SyntaxDefinitions
 static inline char *sh_trim_whitespace(char *str)
 {
     char *end;
-
     while (isspace((unsigned char)*str))
     {
         str++;
     }
-
     if (*str == 0)
     {
         return str;
     }
-
     end = str + strlen(str) - 1;
     while (end > str && isspace((unsigned char)*end))
     {
         *end = '\0';
         end--;
     }
-
     return str;
+}
+
+// Pre-scan a rule line to count tokens (i.e. quoted strings)
+static inline int sh_count_tokens(const char *line)
+{
+    int count = 0;
+    const char *p = line;
+    while ((p = strchr(p, '\"')) != NULL)
+    {
+        p++; // skip quote
+        if (strchr(p, '\"'))
+        {
+            count++;
+            p = strchr(p, '\"') + 1;
+        }
+        else
+        {
+            break;
+        }
+    }
+    return count;
 }
 
 // Parses a single rule line like:
 //   "int", "double" = (255,0,0);
 static inline int sh_parse_rule_line(char *line, SH_SyntaxRule *rule)
 {
-    // Initialize rule
+    // Initialize rule fields
     rule->tokens = NULL;
     rule->token_count = 0;
     rule->r = rule->g = rule->b = 0;
-
-    char *p = line;
-    // Extract tokens between quotes
-    while ((p = strchr(p, '\"')) != NULL)
-    {
-        p++; // move past the first quote
-        char *end_quote = strchr(p, '\"');
-        if (!end_quote)
+    
+    int count = sh_count_tokens(line);
+    if(count > 0) {
+        rule->tokens = (char **)malloc(sizeof(char*) * count);
+        rule->token_count = count;
+        int idx = 0;
+        char *p = line;
+        while ((p = strchr(p, '\"')) != NULL && idx < count)
         {
-            break;
+            p++; // move past opening quote
+            char *end_quote = strchr(p, '\"');
+            if (!end_quote)
+                break;
+            int len = end_quote - p;
+            char *token = (char *)malloc(len + 1);
+            strncpy(token, p, len);
+            token[len] = '\0';
+            rule->tokens[idx++] = token;
+            p = end_quote + 1;
         }
-        int len = end_quote - p;
-        char *token = (char *)malloc(len + 1);
-        strncpy(token, p, len);
-        token[len] = '\0';
-
-        rule->tokens = (char **)realloc(rule->tokens, sizeof(char *) * (rule->token_count + 1));
-        rule->tokens[rule->token_count] = token;
-        rule->token_count++;
-
-        p = end_quote + 1;
     }
 
-    // Look for '=' then '(' to get the RGB values
+    // Find '=' then '(' to get RGB values.
     char *eq = strchr(line, '=');
     if (!eq)
-    {
         return -1;
-    }
     char *paren = strchr(eq, '(');
     if (!paren)
-    {
         return -1;
-    }
     int r, g, b;
+    // Try two formats
     if (sscanf(paren, " ( %d , %d , %d )", &r, &g, &b) < 3 &&
         sscanf(paren, " (%d,%d,%d)", &r, &g, &b) < 3)
     {
@@ -112,12 +125,11 @@ static inline int sh_parse_rule_line(char *line, SH_SyntaxRule *rule)
     rule->r = r;
     rule->g = g;
     rule->b = b;
-
     return 0;
 }
 
 // Loads syntax definitions from a custom syntax file (e.g., "highlight.syntax").
-// The file format should be like:
+// Expected file format:
 //
 //   SYNTAX ".h" && ".c"
 //   {
@@ -130,14 +142,12 @@ static inline SH_SyntaxDefinitions sh_load_syntax_definitions(const char *filena
     SH_SyntaxDefinitions defs;
     defs.definitions = NULL;
     defs.count = 0;
-
     FILE *fp = fopen(filename, "r");
     if (!fp)
     {
         perror("fopen");
         return defs;
     }
-
     char line[SH_MAX_LINE_LENGTH];
     while (fgets(line, sizeof(line), fp))
     {
@@ -149,9 +159,8 @@ static inline SH_SyntaxDefinitions sh_load_syntax_definitions(const char *filena
             def.ext_count = 0;
             def.rules = NULL;
             def.rule_count = 0;
-
             // Parse extension line: e.g. SYNTAX ".h" && ".c"
-            char *p = trimmed + 6; // Skip "SYNTAX"
+            char *p = trimmed + 6;
             while (*p)
             {
                 if (*p == '\"')
@@ -159,18 +168,13 @@ static inline SH_SyntaxDefinitions sh_load_syntax_definitions(const char *filena
                     p++;
                     char *end_quote = strchr(p, '\"');
                     if (!end_quote)
-                    {
                         break;
-                    }
                     int len = end_quote - p;
                     char *ext = (char *)malloc(len + 1);
                     strncpy(ext, p, len);
                     ext[len] = '\0';
-
                     def.extensions = (char **)realloc(def.extensions, sizeof(char *) * (def.ext_count + 1));
-                    def.extensions[def.ext_count] = ext;
-                    def.ext_count++;
-
+                    def.extensions[def.ext_count++] = ext;
                     p = end_quote + 1;
                 }
                 else
@@ -178,46 +182,31 @@ static inline SH_SyntaxDefinitions sh_load_syntax_definitions(const char *filena
                     p++;
                 }
             }
-
             // Next line should be "{"
             if (!fgets(line, sizeof(line), fp))
-            {
                 break;
-            }
             trimmed = sh_trim_whitespace(line);
             if (trimmed[0] != '{')
-            {
                 continue;
-            }
-
-            // Parse rules until we hit "}"
+            // Parse rules until "}"
             while (fgets(line, sizeof(line), fp))
             {
                 trimmed = sh_trim_whitespace(line);
                 if (trimmed[0] == '}')
-                {
                     break;
-                }
                 if (strlen(trimmed) == 0)
-                {
                     continue;
-                }
-
                 SH_SyntaxRule rule;
                 if (sh_parse_rule_line(trimmed, &rule) == 0)
                 {
                     def.rules = (SH_SyntaxRule *)realloc(def.rules, sizeof(SH_SyntaxRule) * (def.rule_count + 1));
-                    def.rules[def.rule_count] = rule;
-                    def.rule_count++;
+                    def.rules[def.rule_count++] = rule;
                 }
             }
-
             defs.definitions = (SH_SyntaxDefinition *)realloc(defs.definitions, sizeof(SH_SyntaxDefinition) * (defs.count + 1));
-            defs.definitions[defs.count] = def;
-            defs.count++;
+            defs.definitions[defs.count++] = def;
         }
     }
-
     fclose(fp);
     return defs;
 }
@@ -247,7 +236,7 @@ static inline void sh_free_syntax_definitions(SH_SyntaxDefinitions defs)
     free(defs.definitions);
 }
 
-// Check if the given filename ends with one of the extensions in def.
+// Check if filename ends with one of the extensions in def.
 static inline int sh_file_has_extension(const char *filename, SH_SyntaxDefinition def)
 {
     for (int i = 0; i < def.ext_count; i++)
@@ -258,28 +247,24 @@ static inline int sh_file_has_extension(const char *filename, SH_SyntaxDefinitio
         if (fname_len >= ext_len)
         {
             if (strcmp(filename + fname_len - ext_len, ext) == 0)
-            {
                 return 1;
-            }
         }
     }
     return 0;
 }
 
 // Initialize ncurses colors for each syntax rule in the definition.
-// Each rule is assigned a unique color pair (starting at pair index 1 and color index 16).
+// Each rule is assigned a unique color pair.
 static inline void sh_init_syntax_colors(SH_SyntaxDefinition *def)
 {
     short next_color_index = 16;
-    short next_pair_index = 1; // pair 0 is default
-
+    short next_pair_index = 1; // Pair 0 is default.
     for (int i = 0; i < def->rule_count; i++)
     {
         SH_SyntaxRule *rule = &def->rules[i];
         short color_number = next_color_index++;
         short pair_index = next_pair_index++;
-
-        // Scale 0-255 values to 0-1000 for ncurses
+        // Scale 0-255 values to 0-1000 for ncurses.
         short r_scaled = (rule->r * 1000) / 255;
         short g_scaled = (rule->g * 1000) / 255;
         short b_scaled = (rule->b * 1000) / 255;
@@ -290,80 +275,6 @@ static inline void sh_init_syntax_colors(SH_SyntaxDefinition *def)
         init_pair(pair_index, color_number, -1);
         rule->color_pair = pair_index;
     }
-}
-
-// Highlights the given file in the provided ncurses window using the syntax definition.
-// This function reads the file line by line and prints tokens using their defined colors.
-static inline void sh_highlight_file(WINDOW *win, const char *filename, SH_SyntaxDefinition *def)
-{
-    FILE *fp = fopen(filename, "r");
-    if (!fp)
-    {
-        wprintw(win, "Error opening file: %s\n", filename);
-        return;
-    }
-
-    char buffer[SH_MAX_LINE_LENGTH];
-    int row = 0;
-    while (fgets(buffer, sizeof(buffer), fp))
-    {
-        buffer[strcspn(buffer, "\n")] = '\0';
-        int len = strlen(buffer);
-        int col = 0;
-        int i = 0;
-        while (i < len)
-        {
-            if (isalpha(buffer[i]) || buffer[i] == '_')
-            {
-                int start = i;
-                while (i < len && (isalnum(buffer[i]) || buffer[i] == '_'))
-                {
-                    i++;
-                }
-                int word_len = i - start;
-                char *word = (char *)malloc(word_len + 1);
-                strncpy(word, buffer + start, word_len);
-                word[word_len] = '\0';
-
-                int highlighted = 0;
-                for (int r = 0; r < def->rule_count; r++)
-                {
-                    SH_SyntaxRule rule = def->rules[r];
-                    for (int t = 0; t < rule.token_count; t++)
-                    {
-                        if (strcmp(word, rule.tokens[t]) == 0)
-                        {
-                            wattron(win, COLOR_PAIR(rule.color_pair));
-                            mvwprintw(win, row, col, "%s", word);
-                            wattroff(win, COLOR_PAIR(rule.color_pair));
-                            highlighted = 1;
-                            break;
-                        }
-                    }
-                    if (highlighted)
-                    {
-                        break;
-                    }
-                }
-                if (!highlighted)
-                {
-                    mvwprintw(win, row, col, "%s", word);
-                }
-                col += word_len;
-                free(word);
-            }
-            else
-            {
-                mvwaddch(win, row, col, buffer[i]);
-                i++;
-                col++;
-            }
-        }
-        row++;
-    }
-
-    fclose(fp);
-    wrefresh(win);
 }
 
 #ifdef __cplusplus

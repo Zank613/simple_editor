@@ -6,9 +6,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <ctype.h>
-
-// Include our syntax highlighter extension header.
-#include "./syntax_highlighter.h"
+#include "syntax_highlighter.h"  // Include our highlighter header
 
 #define MAX_LINES 1000
 #define MAX_COLS 1024
@@ -17,89 +15,71 @@
 #define UNDO_STACK_SIZE 100
 
 // ---------------------
-// Configuration Section
+// Configuration & Global State
 // ---------------------
 typedef struct Config
 {
     int tab_four_spaces;
     int auto_indent;
-    // (More options can be added here.)
 } Config;
-
-// Default configuration: both enabled.
 Config config = { 1, 1 };
 
 char current_file[PROMPT_BUFFER_SIZE] = { 0 };
 int dirty = 0;
 
-// ---------------------
-// Global Syntax Vars
-// ---------------------
+// Global syntax definitions
 SH_SyntaxDefinitions global_syntax_defs = { NULL, 0 };
 SH_SyntaxDefinition *selected_syntax = NULL;
-int syntax_enabled = 0;  // 1 if syntax highlighting should be used
+int syntax_enabled = 0; // 1 = enabled
 
 // ---------------------
-// Helper Functions
+// Helper: trim whitespace
 // ---------------------
 static inline char *trim_whitespace(char *s)
 {
     while (isspace((unsigned char)*s))
-    {
         s++;
-    }
     if (*s == '\0')
-    {
         return s;
-    }
     char *end = s + strlen(s) - 1;
     while (end > s && isspace((unsigned char)*end))
     {
+        *end = '\0';
         end--;
     }
-    *(end + 1) = '\0';
     return s;
 }
 
 // ---------------------
-// Load our configuration file (settings.config)
+// Load Configuration
 // ---------------------
 void load_config(void)
 {
     FILE *fp = fopen("settings.config", "r");
     if (fp == NULL)
-    {
-        // Use defaults if no config file found.
         return;
-    }
     char line[256];
     while (fgets(line, sizeof(line), fp))
     {
         char *p = trim_whitespace(line);
         if (*p == '\0' || *p == '#' || *p == '/')
-        {
             continue;
-        }
         char key[64], value[64];
         if (sscanf(p, " %63[^=] = %63[^;];", key, value) == 2)
         {
             char *tkey = trim_whitespace(key);
             char *tvalue = trim_whitespace(value);
             if (strcmp(tkey, "TAB_FOUR_SPACES") == 0)
-            {
                 config.tab_four_spaces = (strcmp(tvalue, "TRUE") == 0 || strcmp(tvalue, "true") == 0);
-            }
             else if (strcmp(tkey, "AUTO_INDENT") == 0)
-            {
                 config.auto_indent = (strcmp(tvalue, "TRUE") == 0 || strcmp(tvalue, "true") == 0);
-            }
         }
     }
     fclose(fp);
 }
 
 // ---------------------
-// Editor Structures
+// Editor Structure
 // ---------------------
 typedef struct Editor
 {
@@ -110,7 +90,6 @@ typedef struct Editor
     int row_offset;
     int col_offset;
 } Editor;
-
 Editor editor;
 
 void init_editor(void)
@@ -124,7 +103,7 @@ void init_editor(void)
 }
 
 // ---------------------
-// Undo/Redo Support
+// Undo/Redo
 // ---------------------
 typedef struct EditorState
 {
@@ -135,10 +114,8 @@ typedef struct EditorState
     int row_offset;
     int col_offset;
 } EditorState;
-
 EditorState undo_stack[UNDO_STACK_SIZE];
 int undo_stack_top = 0;
-
 EditorState redo_stack[UNDO_STACK_SIZE];
 int redo_stack_top = 0;
 
@@ -219,28 +196,19 @@ void update_viewport(void)
     int rows, cols;
     getmaxyx(stdscr, rows, cols);
     if (editor.cursor_y < editor.row_offset)
-    {
         editor.row_offset = editor.cursor_y;
-    }
     else if (editor.cursor_y >= editor.row_offset + (rows - 1))
-    {
         editor.row_offset = editor.cursor_y - (rows - 2);
-    }
     int usable_cols = cols - LINE_NUMBER_WIDTH;
     if (editor.cursor_x < editor.col_offset)
-    {
         editor.col_offset = editor.cursor_x;
-    }
     else if (editor.cursor_x >= editor.col_offset + usable_cols)
-    {
         editor.col_offset = editor.cursor_x - usable_cols + 1;
-    }
 }
 
 // ---------------------
-// Syntax Highlighting Integration
+// Syntax Highlighting Helper for In-Memory Buffer
 // ---------------------
-// This helper function is similar to sh_highlight_file but works on our in-memory buffer.
 static inline void sh_highlight_text(WINDOW *win, SH_SyntaxDefinition *def, char text[][MAX_COLS], int num_lines, int row_offset, int col_offset)
 {
     int rows, cols;
@@ -248,7 +216,6 @@ static inline void sh_highlight_text(WINDOW *win, SH_SyntaxDefinition *def, char
     int row = 0;
     for (int i = row_offset; i < num_lines && row < rows - 1; i++, row++)
     {
-        // Print line number.
         mvwprintw(win, row, 0, "%4d |", i + 1);
         char *line = text[i];
         int len = strlen(line);
@@ -260,9 +227,7 @@ static inline void sh_highlight_text(WINDOW *win, SH_SyntaxDefinition *def, char
             {
                 int start = j;
                 while (j < len && (isalnum(line[j]) || line[j] == '_'))
-                {
                     j++;
-                }
                 int word_len = j - start;
                 char *word = (char *)malloc(word_len + 1);
                 strncpy(word, line + start, word_len);
@@ -277,25 +242,19 @@ static inline void sh_highlight_text(WINDOW *win, SH_SyntaxDefinition *def, char
                         {
                             wattron(win, COLOR_PAIR(rule.color_pair));
                             for (int k = 0; k < word_len && col < cols; k++, col++)
-                            {
                                 mvwaddch(win, row, col, word[k]);
-                            }
                             wattroff(win, COLOR_PAIR(rule.color_pair));
                             highlighted = 1;
                             break;
                         }
                     }
                     if (highlighted)
-                    {
                         break;
-                    }
                 }
                 if (!highlighted)
                 {
                     for (int k = 0; k < word_len && col < cols; k++, col++)
-                    {
                         mvwaddch(win, row, col, word[k]);
-                    }
                 }
                 free(word);
             }
@@ -307,11 +266,10 @@ static inline void sh_highlight_text(WINDOW *win, SH_SyntaxDefinition *def, char
             }
         }
     }
-    // Note: We do not call wrefresh(win) here so that caller can add status bar info.
 }
 
 // ---------------------
-// Editor Refresh Screen
+// Editor Refresh Screen (with Toggle for Syntax Highlighting)
 // ---------------------
 void editor_refresh_screen(void)
 {
@@ -320,42 +278,38 @@ void editor_refresh_screen(void)
     getmaxyx(stdscr, rows, cols);
     update_viewport();
 
-    // If syntax highlighting is enabled, use our syntax highlighter extension.
     if (syntax_enabled && selected_syntax != NULL)
     {
         sh_highlight_text(stdscr, selected_syntax, editor.text, editor.num_lines, editor.row_offset, editor.col_offset);
     }
     else
     {
-        // Normal drawing: print lines with line numbers.
         for (int i = editor.row_offset; i < editor.num_lines && i < editor.row_offset + rows - 1; i++)
         {
             int screen_row = i - editor.row_offset;
             mvprintw(screen_row, 0, "%4d |", i + 1);
             char *line = editor.text[i];
-            int line_len = strlen(line);
             int usable_cols = cols - LINE_NUMBER_WIDTH;
-            if (editor.col_offset < line_len)
+            if (editor.col_offset < (int)strlen(line))
             {
                 mvprintw(screen_row, LINE_NUMBER_WIDTH, "%.*s", usable_cols, line + editor.col_offset);
             }
         }
     }
 
-    // Build and display status bar.
     char status[256];
     const char *fname = (current_file[0] != '\0') ? current_file : "Untitled";
-    snprintf(status, sizeof(status), "File: %s | Ln: %d, Col: %d%s",
+    snprintf(status, sizeof(status), "File: %s | Ln: %d, Col: %d%s | Syntax: %s",
              fname,
              editor.cursor_y + 1,
              editor.cursor_x + 1,
-             (dirty ? " [Modified]" : ""));
-    mvprintw(rows - 1, 0, "%s  (Ctrl+Q: Quit, Ctrl+S: Save, Ctrl+O: Open, Ctrl+Z: Undo, Ctrl+Y: Redo, Home/End, PgUp/PgDn, Mouse)", status);
+             (dirty ? " [Modified]" : ""),
+             (syntax_enabled ? "On" : "Off"));
+    mvprintw(rows - 1, 0, "%s  (Ctrl+Q: Quit, Ctrl+S: Save, Ctrl+O: Open, Ctrl+Z: Undo, Ctrl+Y: Redo, Ctrl+H: Toggle Syntax, Home/End, PgUp/PgDn, Mouse)", status);
 
     int screen_cursor_y = editor.cursor_y - editor.row_offset;
     int screen_cursor_x = editor.cursor_x - editor.col_offset + LINE_NUMBER_WIDTH;
     move(screen_cursor_y, screen_cursor_x);
-
     wnoutrefresh(stdscr);
     doupdate();
 }
@@ -368,13 +322,9 @@ void editor_insert_char(int ch)
     char *line = editor.text[editor.cursor_y];
     int len = strlen(line);
     if (len >= MAX_COLS - 1)
-    {
         return;
-    }
     for (int i = len; i >= editor.cursor_x; i--)
-    {
         line[i + 1] = line[i];
-    }
     line[editor.cursor_x] = ch;
     editor.cursor_x++;
 }
@@ -384,20 +334,14 @@ void editor_delete_char(void)
     if (editor.cursor_x == 0)
     {
         if (editor.cursor_y == 0)
-        {
             return;
-        }
         int prev_len = strlen(editor.text[editor.cursor_y - 1]);
         int curr_len = strlen(editor.text[editor.cursor_y]);
         if (prev_len + curr_len >= MAX_COLS - 1)
-        {
             return;
-        }
         strcat(editor.text[editor.cursor_y - 1], editor.text[editor.cursor_y]);
         for (int i = editor.cursor_y; i < editor.num_lines - 1; i++)
-        {
             strcpy(editor.text[i], editor.text[i + 1]);
-        }
         editor.num_lines--;
         editor.cursor_y--;
         editor.cursor_x = prev_len;
@@ -407,9 +351,7 @@ void editor_delete_char(void)
         char *line = editor.text[editor.cursor_y];
         int len = strlen(line);
         for (int i = editor.cursor_x - 1; i < len; i++)
-        {
             line[i] = line[i + 1];
-        }
         editor.cursor_x--;
     }
 }
@@ -421,57 +363,41 @@ void editor_delete_at_cursor(void)
     if (editor.cursor_x == len)
     {
         if (editor.cursor_y == editor.num_lines - 1)
-        {
             return;
-        }
         int next_len = strlen(editor.text[editor.cursor_y + 1]);
         if (len + next_len >= MAX_COLS - 1)
-        {
             return;
-        }
         strcat(line, editor.text[editor.cursor_y + 1]);
         for (int i = editor.cursor_y + 1; i < editor.num_lines - 1; i++)
-        {
             strcpy(editor.text[i], editor.text[i + 1]);
-        }
         editor.num_lines--;
     }
     else
     {
         for (int i = editor.cursor_x; i < len; i++)
-        {
             line[i] = line[i + 1];
-        }
     }
 }
 
 void editor_insert_newline(void)
 {
     if (editor.num_lines >= MAX_LINES)
-    {
         return;
-    }
     char *line = editor.text[editor.cursor_y];
     int len = strlen(line);
     char remainder[MAX_COLS];
     strcpy(remainder, line + editor.cursor_x);
     line[editor.cursor_x] = '\0';
     for (int i = editor.num_lines; i > editor.cursor_y + 1; i--)
-    {
         strcpy(editor.text[i], editor.text[i - 1]);
-    }
     if (config.auto_indent)
     {
         int indent_count = 0;
         while (line[indent_count] == ' ' && indent_count < MAX_COLS - 1)
-        {
             indent_count++;
-        }
         char new_line[MAX_COLS] = {0};
         for (int i = 0; i < indent_count && i < MAX_COLS - 1; i++)
-        {
             new_line[i] = ' ';
-        }
         new_line[indent_count] = '\0';
         strncat(new_line, remainder, MAX_COLS - strlen(new_line) - 1);
         strcpy(editor.text[editor.cursor_y + 1], new_line);
@@ -515,9 +441,7 @@ void editor_save_file(void)
     {
         editor_prompt("Save as: ", filename, PROMPT_BUFFER_SIZE);
         if (strlen(filename) == 0)
-        {
             return;
-        }
         struct stat st = {0};
         if (stat("saves", &st) == -1)
         {
@@ -543,9 +467,7 @@ void editor_save_file(void)
         return;
     }
     for (int i = 0; i < editor.num_lines; i++)
-    {
         fprintf(fp, "%s\n", editor.text[i]);
-    }
     fclose(fp);
     dirty = 0;
     int rows, cols;
@@ -561,9 +483,7 @@ void editor_load_file(void)
     char filepath[PROMPT_BUFFER_SIZE];
     editor_prompt("Open file: ", filename, PROMPT_BUFFER_SIZE);
     if (strlen(filename) == 0)
-    {
         return;
-    }
     snprintf(filepath, PROMPT_BUFFER_SIZE, "saves/%s", filename);
     FILE *fp = fopen(filepath, "r");
     if (fp == NULL)
@@ -581,9 +501,7 @@ void editor_load_file(void)
     {
         size_t len = strlen(line_buffer);
         if (len > 0 && line_buffer[len - 1] == '\n')
-        {
             line_buffer[len - 1] = '\0';
-        }
         strncpy(editor.text[editor.num_lines], line_buffer, MAX_COLS - 1);
         editor.num_lines++;
     }
@@ -592,10 +510,10 @@ void editor_load_file(void)
     editor.cursor_y = 0;
     strncpy(current_file, filepath, PROMPT_BUFFER_SIZE);
     dirty = 0;
-
-    // Check file extension against our syntax definitions.
+    // Check file extension for syntax definitions.
     if (global_syntax_defs.count > 0)
     {
+        syntax_enabled = 0;
         for (int i = 0; i < global_syntax_defs.count; i++)
         {
             if (sh_file_has_extension(current_file, global_syntax_defs.definitions[i]))
@@ -607,7 +525,6 @@ void editor_load_file(void)
             }
         }
     }
-
     int rows, cols;
     getmaxyx(stdscr, rows, cols);
     mvprintw(rows - 1, 0, "File loaded from %s. Press any key...", filepath);
@@ -616,7 +533,7 @@ void editor_load_file(void)
 }
 
 // ---------------------
-// Process Key/Mice Events
+// Process Key & Mouse Events
 // ---------------------
 void process_keypress(void)
 {
@@ -631,14 +548,10 @@ void process_keypress(void)
                 int new_cursor_y = event.y + editor.row_offset;
                 int new_cursor_x = (event.x < LINE_NUMBER_WIDTH) ? 0 : event.x - LINE_NUMBER_WIDTH + editor.col_offset;
                 if (new_cursor_y >= editor.num_lines)
-                {
                     new_cursor_y = editor.num_lines - 1;
-                }
                 int line_len = strlen(editor.text[new_cursor_y]);
                 if (new_cursor_x > line_len)
-                {
                     new_cursor_x = line_len;
-                }
                 editor.cursor_y = new_cursor_y;
                 editor.cursor_x = new_cursor_x;
             }
@@ -646,17 +559,13 @@ void process_keypress(void)
             {
                 editor.cursor_y -= 3;
                 if (editor.cursor_y < 0)
-                {
                     editor.cursor_y = 0;
-                }
             }
             else if (event.bstate & BUTTON5_PRESSED)
             {
                 editor.cursor_y += 3;
                 if (editor.cursor_y >= editor.num_lines)
-                {
                     editor.cursor_y = editor.num_lines - 1;
-                }
             }
         }
         return;
@@ -678,6 +587,9 @@ void process_keypress(void)
             break;
         case 15: // Ctrl+O: Open.
             editor_load_file();
+            break;
+        case 8:  // Ctrl+H: Toggle Syntax Highlighting.
+            syntax_enabled = !syntax_enabled;
             break;
         case KEY_HOME:
             editor.cursor_x = 0;
@@ -703,9 +615,7 @@ void process_keypress(void)
             if (config.tab_four_spaces)
             {
                 for (int i = 0; i < 4; i++)
-                {
                     editor_insert_char(' ');
-                }
             }
             else
             {
@@ -734,18 +644,18 @@ void process_keypress(void)
             if (editor.cursor_y > 0)
             {
                 editor.cursor_y--;
-                int line_len = strlen(editor.text[editor.cursor_y]);
-                if (editor.cursor_x > line_len)
-                    editor.cursor_x = line_len;
+                int len = strlen(editor.text[editor.cursor_y]);
+                if (editor.cursor_x > len)
+                    editor.cursor_x = len;
             }
             break;
         case KEY_DOWN:
             if (editor.cursor_y < editor.num_lines - 1)
             {
                 editor.cursor_y++;
-                int line_len = strlen(editor.text[editor.cursor_y]);
-                if (editor.cursor_x > line_len)
-                    editor.cursor_x = line_len;
+                int len = strlen(editor.text[editor.cursor_y]);
+                if (editor.cursor_x > len)
+                    editor.cursor_x = len;
             }
             break;
         case KEY_BACKSPACE:
@@ -777,7 +687,6 @@ void process_keypress(void)
 // ---------------------
 int main(void)
 {
-    // Load configuration and syntax definitions.
     load_config();
     global_syntax_defs = sh_load_syntax_definitions("highlight.syntax");
 
@@ -799,7 +708,6 @@ int main(void)
         process_keypress();
     }
 
-    // Cleanup on exit.
     sh_free_syntax_definitions(global_syntax_defs);
     endwin();
     return 0;
