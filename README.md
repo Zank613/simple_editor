@@ -25,6 +25,11 @@ Custom terminal-based text editor written in C99 and ncurses library. Yes it is 
 git clone https://github.com/Zank613/simple_editor.git
 ```
 
+- ### For only experimental syntax highlighted branch
+    ```bash
+    git clone -b syntax_highlight_experimental --single-branch https://github.com/Zank613/simple_editor.git
+    ```
+
 ### Build it
 ```bash
 gcc -o custom_editor main.c -lncurses
